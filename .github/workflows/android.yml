@@ -172,7 +172,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: BlueDash-Diagnosticos
+          name: Chispa-Pro-Diagnosticos
           path: |
             build/import.log
             build/export.log
