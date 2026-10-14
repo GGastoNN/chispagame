@@ -1,0 +1,180 @@
+name: Compilar APK Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  android:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      GODOT_VERSION: '4.4.1'
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/debug.keystore
+      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O "$RUNNER_TEMP/android-tools.zip"
+            mkdir -p "$RUNNER_TEMP/android-tools" "$SDK/cmdline-tools/latest"
+            unzip -q "$RUNNER_TEMP/android-tools.zip" -d "$RUNNER_TEMP/android-tools"
+            cp -a "$RUNNER_TEMP/android-tools/cmdline-tools/." "$SDK/cmdline-tools/latest/"
+            SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK" 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'platforms;android-34' 'build-tools;34.0.0'
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      - name: Instalar Godot y plantillas
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          wget -q "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -O "$RUNNER_TEMP/godot.zip"
+          unzip -qo "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          chmod +x "$RUNNER_TEMP/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          sudo mv "$RUNNER_TEMP/Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          wget -q "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -O "$RUNNER_TEMP/templates.tpz"
+          mkdir -p "$RUNNER_TEMP/templates" "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          unzip -qo "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
+          cp -a "$RUNNER_TEMP/templates/templates/." "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          test -s "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
+          godot --headless --version
+
+      - name: Crear firma Android de depuracion
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt -keystore "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug,O=CHISPA,C=US'
+
+      - name: Corregir configuracion de texturas moviles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          file = Path('project.godot')
+          data = file.read_text()
+          if '[rendering]' not in data:
+              data += '\n[rendering]\n'
+          setting = 'textures/vram_compression/import_etc2_astc=true'
+          data = re.sub(r'(?m)^textures/vram_compression/import_etc2_astc\s*=.*\n?', '', data)
+          data = data.replace('[rendering]\n', '[rendering]\n' + setting + '\n', 1)
+          file.write_text(data)
+          print('Texturas moviles ETC2/ASTC habilitadas antes de importar recursos')
+          PY
+
+      - name: Importar recursos para Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          godot --headless --path . --editor --import --quit 2>&1 | tee build/import.log
+
+      - name: Configurar preferencias y preset Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          settings = Path.home() / '.config/godot/editor_settings-4.4.tres'
+          data = settings.read_text()
+          if '[resource]' not in data:
+              raise SystemExit('Preferencias de Godot incorrectas')
+          values = {
+              'export/android/android_sdk_path': os.environ['ANDROID_HOME'],
+              'export/android/java_sdk_path': os.environ['JAVA_HOME'],
+              'export/android/debug_keystore': os.environ['GODOT_ANDROID_KEYSTORE_DEBUG_PATH'],
+              'export/android/debug_keystore_user': 'androiddebugkey',
+              'export/android/debug_keystore_pass': 'android',
+          }
+          for key, value in values.items():
+              data = re.sub(rf'(?m)^{re.escape(key)}\s*=.*\n?', '', data)
+              data = data.replace('[resource]\n', f'[resource]\n{key} = "{value}"\n', 1)
+          settings.write_text(data)
+          preset = '''[preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          advanced_options=false
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="build/Chispa.apk"
+          patches=PackedStringArray()
+
+          [preset.0.options]
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          architectures/armeabi-v7a=false
+          architectures/arm64-v8a=true
+          architectures/x86=false
+          architectures/x86_64=false
+          package/unique_name="org.bluedash.runner"
+          package/name="CHISPA"
+          package/signed=true
+          package/version_code=1
+          package/version_name="1.0"
+          keystore/debug="{keystore}"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          '''.format(keystore=os.environ['GODOT_ANDROID_KEYSTORE_DEBUG_PATH'])
+          Path('export_presets.cfg').write_text(preset)
+          print('Configuradas rutas SDK/JDK y preset Android')
+          PY
+
+      - name: Exportar APK Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          grep -n 'textures/vram_compression/import_etc2_astc=true' project.godot
+          godot --headless --verbose --path . --export-debug Android build/Chispa.apk 2>&1 | tee build/export.log
+          test -s build/Chispa.apk
+          ls -lh build/Chispa.apk
+
+      - name: Publicar APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chispa-Android-APK
+          path: build/Chispa.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publicar diagnosticos si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueDash-Diagnosticos
+          path: |
+            build/import.log
+            build/export.log
+          if-no-files-found: warn
+          retention-days: 7
