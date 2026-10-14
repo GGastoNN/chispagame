@@ -2,6 +2,8 @@ extends Node2D
 # CHISPA PRO - auto-cycling light world, articulated hero, deterministic 2D physics.
 const W := 1280.0
 const H := 720.0
+const PLAY_BOTTOM := 554.0
+const WORLD_RAISE := 110.0
 const PW := 44.0
 const PH := 86.0
 const RUN := 350.0
@@ -52,8 +54,44 @@ var jump_press := false
 var transition := 0.0
 var best_level := 1
 var starfield: Array = []
+var sfx: Dictionary = {}
+var muted := false
+var warning_played := false
+const SFX = {
+ "jump": preload("res://audio/jump.wav"),
+ "double": preload("res://audio/double_jump.wav"),
+ "land": preload("res://audio/land.wav"),
+ "light": preload("res://audio/phase_light.wav"),
+ "dark": preload("res://audio/phase_dark.wav"),
+ "warning": preload("res://audio/danger.wav"),
+ "lose": preload("res://audio/lose.wav"),
+ "win": preload("res://audio/win.wav"),
+ "start": preload("res://audio/start.wav")
+}
+
+func play_sfx(name: String) -> void:
+ if muted or not sfx.has(name):
+  return
+ var player: AudioStreamPlayer = sfx[name]
+ player.stop()
+ player.play()
+
 
 func _ready() -> void:
+ # Keep the entire playable world above the dedicated touch-control bar.
+ for stage in levels:
+  for platform in stage["platforms"]:
+   platform[1] = int(platform[1]) - int(WORLD_RAISE)
+  for hazard in stage["hazards"]:
+   hazard[1] = int(hazard[1]) - int(WORLD_RAISE)
+  stage["spawn"] = stage["spawn"] - Vector2(0, WORLD_RAISE)
+  stage["goal"] = stage["goal"] - Vector2(0, WORLD_RAISE)
+ for name in SFX:
+  var player := AudioStreamPlayer.new()
+  player.stream = SFX[name]
+  player.volume_db = -6.0 if name == "land" else -3.0
+  add_child(player)
+  sfx[name] = player
  var rng := RandomNumberGenerator.new()
  rng.seed = 99477
  for i in range(56):
@@ -69,6 +107,7 @@ func reset_level() -> void:
  buffer = 0.0
  air_jump = true
  phase_timer = 0.0
+ warning_played = false
  phase_light = true
  phase_grace = 0.0
  run_cycle = 0.0
@@ -83,6 +122,7 @@ func start() -> void:
   deaths = 0
  state = 1
  reset_level()
+ play_sfx("start")
 
 func platform_enabled(item: Array) -> bool:
  return int(item[3]) == 0 or (int(item[3]) == 1) == phase_light
@@ -112,19 +152,27 @@ func _unhandled_key_input(e: InputEvent) -> void:
 func _input(e: InputEvent) -> void:
  if e is InputEventScreenTouch:
   if e.pressed:
+   if e.position.x > 1110 and e.position.y < 83:
+    muted = not muted
+    queue_redraw()
+    return
    touches[e.index] = e.position
    if state != 1:
     start()
-   elif e.position.x > 900 and e.position.y > 500:
+   elif e.position.x > 960 and e.position.y >= PLAY_BOTTOM:
     request_jump()
   else:
    touches.erase(e.index)
  elif e is InputEventScreenDrag:
   touches[e.index] = e.position
  elif e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:
+  if e.position.x > 1110 and e.position.y < 83:
+   muted = not muted
+   queue_redraw()
+   return
   if state != 1:
    start()
-  elif e.position.x > 900 and e.position.y > 500:
+  elif e.position.x > 960 and e.position.y >= PLAY_BOTTOM:
    request_jump()
 
 func _physics_process(dt: float) -> void:
@@ -145,9 +193,14 @@ func _physics_process(dt: float) -> void:
   return
  elapsed += dt
  phase_timer += dt
+ if PHASE_SECONDS-phase_timer < WARN_SECONDS and not warning_played:
+  warning_played = true
+  play_sfx("warning")
  if phase_timer >= PHASE_SECONDS:
+  warning_played = false
   phase_timer -= PHASE_SECONDS
   phase_light = not phase_light
+  play_sfx("light" if phase_light else "dark")
   phase_grace = 0.20
   flash = 0.45
   shake = 2.0
@@ -157,7 +210,7 @@ func _physics_process(dt: float) -> void:
  if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):move_axis -= 1
  if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):move_axis += 1
  for pt in touches.values():
-  if pt.y > 495:
+  if pt.y >= PLAY_BOTTOM:
    if pt.x < 170: move_axis -= 1
    elif pt.x < 350: move_axis += 1
  move_axis = clampf(move_axis,-1,1)
@@ -172,6 +225,7 @@ func _physics_process(dt: float) -> void:
   var first := coyote>0
   v.y = JUMP if first else JUMP*0.82
   if not first:air_jump = false
+  play_sfx("jump" if first else "double")
   coyote = 0
   grounded = false
   buffer = 0
@@ -195,13 +249,14 @@ func _physics_process(dt: float) -> void:
    air_jump = true
    if not was_grounded:
     land_bounce = 0.25
+    play_sfx("land")
     shake = 2
     make_sparks(p+Vector2(PW/2,PH),10,GOLD)
    break
  if not grounded and was_grounded: coyote = 0.11
  if grounded and absf(v.x)>30:run_cycle += absf(v.x)*dt*0.038
  elif not grounded:run_cycle += dt*3.0
- if p.y > H+65:
+ if p.y > PLAY_BOTTOM+80:
   die()
   return
  for hazard in levels[level]["hazards"]:
@@ -215,6 +270,7 @@ func _physics_process(dt: float) -> void:
  var goal: Vector2 = levels[level]["goal"]
  if Rect2(p,Vector2(PW,PH)).intersects(Rect2(goal,Vector2(50,68))):
   make_sparks(goal+Vector2(20,20),28,GOLD)
+  play_sfx("win")
   level += 1
   if level >= levels.size():
    level = levels.size()-1
@@ -226,6 +282,7 @@ func _physics_process(dt: float) -> void:
  queue_redraw()
 
 func die() -> void:
+ play_sfx("lose")
  deaths += 1
  shake = 11
  flash = 0.55
@@ -243,7 +300,7 @@ func _draw() -> void:
  for j in range(10):
   var skyline := 105+j*139
   draw_rect(Rect2(skyline-40,300+sin(float(j)*2.5)*80,95,330),Color(0.1,0.18,0.31,0.6))
- draw_rect(Rect2(0,625,W,95),Color("07111e"))
+ draw_rect(Rect2(0,PLAY_BOTTOM-10,W,10),Color("061020"))
  if phase_light:
   draw_circle(p+Vector2(18,22),230,Color(0.58,0.88,1,0.055))
  var warning := PHASE_SECONDS-phase_timer < WARN_SECONDS and state == 1
@@ -276,6 +333,11 @@ func _draw() -> void:
   c.a = minf(1,q["life"]/q["max"])
   draw_circle(q["p"],3,c)
  draw_hero(p+Vector2(PW/2,PH),facing)
+ # Dedicated opaque control bar; world art never uses this space.
+ draw_rect(Rect2(0,PLAY_BOTTOM,W,H-PLAY_BOTTOM),Color("071327"))
+ draw_line(Vector2(0,PLAY_BOTTOM),Vector2(W,PLAY_BOTTOM),CYAN.darkened(0.38),3.0)
+ label_text("MOVER",Vector2(92,587),18,Color("91bdd5"))
+ label_text("SALTAR / DOBLE SALTO",Vector2(924,587),18,Color("91bdd5"))
  draw_rect(Rect2(0,0,W,86),Color("060d20",0.86))
  label_text("CHISPA",Vector2(30,53),39,GOLD)
  label_text("%02d / %02d" % [level+1,levels.size()],Vector2(276,49),26)
@@ -283,34 +345,35 @@ func _draw() -> void:
  draw_rect(Rect2(629,32,190,17),Color("293453"))
  draw_rect(Rect2(629,32,190*(1-phase_timer/PHASE_SECONDS),17),GOLD if warning else (CYAN if phase_light else VIOLET))
  label_text("%0.1fs" % (PHASE_SECONDS-phase_timer),Vector2(831,48),20)
- label_text("CAIDAS  %d" % deaths,Vector2(986,47),20)
- draw_control(Rect2(26,568,136,125),"<")
- draw_control(Rect2(174,568,136,125),">")
- draw_control(Rect2(1070,555,185,140),"SALTAR")
+ label_text("CAIDAS  %d" % deaths,Vector2(975,47),20)
+ label_text("SONIDO ON" if not muted else "MUTE",Vector2(1122,76),16,CYAN if not muted else GOLD)
+ draw_control(Rect2(27,594,138,105),"<")
+ draw_control(Rect2(178,594,138,105),">")
+ draw_control(Rect2(996,594,260,105),"SALTAR")
  if warning:
   draw_rect(Rect2(403,90,480,49),Color("2a203f",0.86))
   label_text("CAMBIO DE FASE INMINENTE",Vector2(434,125),22,GOLD)
  if flash>0:draw_rect(Rect2(0,0,W,H),Color(0.77,0.94,1,flash*0.2))
  if state!=1:
-  draw_rect(Rect2(163,155,953,366),Color("081227",0.96))
-  draw_rect(Rect2(163,155,953,366),CYAN,false,3)
+  draw_rect(Rect2(163,115,953,336),Color("081227",0.96))
+  draw_rect(Rect2(163,115,953,336),CYAN,false,3)
   if state==0:
    label_text("CHISPA: EL MUNDO SE APAGA",Vector2(223,240),38,GOLD)
    label_text("La luz cambia sola. Aprende el ritmo y sobrevive.",Vector2(280,300),25)
    label_text("MOVER  A / D    |    SALTAR  ESPACIO    |    DOBLE SALTO",Vector2(229,365),22)
-   label_text("TOCA PARA EMPEZAR",Vector2(431,457),30,CYAN)
+   label_text("TOCA PARA EMPEZAR",Vector2(431,422),30,CYAN)
   elif state==2:
    label_text("NIVEL SUPERADO",Vector2(444,255),39,GOLD)
    label_text("TOCA PARA CONTINUAR",Vector2(423,405),28,CYAN)
   else:
    label_text("EL MUNDO VUELVE A BRILLAR",Vector2(306,250),38,GOLD)
    label_text("TERMINASTE LOS 3 NIVELES",Vector2(392,352),27)
-   label_text("TOCA PARA REINICIAR",Vector2(430,428),25,CYAN)
+   label_text("TOCA PARA REINICIAR",Vector2(430,416),25,CYAN)
 
 func draw_control(rect: Rect2, caption: String) -> void:
  draw_rect(rect,Color("1c3a5a",0.79))
  draw_rect(rect,CYAN,false,2)
- label_text(caption,rect.position+Vector2(25,83),28,WHITE)
+ label_text(caption,rect.position+Vector2(26,68),28,WHITE)
 
 # Character animation rig: separate head, chest, upper/lower arms, upper/lower legs,
 # feet and tail. Angles respond to grounded running, acceleration and vertical speed.
