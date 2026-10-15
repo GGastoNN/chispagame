@@ -1,16 +1,20 @@
-# CHISPA PRO — Horizontal + Sonido
+# CHISPA DELUXE – El mundo se apaga
 
-Proyecto Godot 4.4.1 para Android. **Pantalla horizontal** (landscape 1280×720), barra de controles independiente bajo el área jugable, y sonidos originales sintetizados incluidos en `audio/`.
+Juego 2D para Android, Godot 4.4.1, pantalla horizontal.
 
-## Jugar
-- En Android: botones `<`, `>` y `SALTAR` en la franja inferior. Toque `SONIDO ON` para silenciar.
-- En teclado: A/D o flechas para moverse; espacio/W/flecha arriba para saltar; doble salto en el aire; R reinicia.
-- Las fases de luz/oscuridad cambian automáticamente cada 7 segundos. Escuchás un aviso antes del cambio.
-- Efectos: salto, doble salto, aterrizaje, aviso, cambio a luz, cambio a sombra, muerte, completar nivel, inicio.
+## Incluye
+- 7 niveles completos en datos de escenario.
+- Dos encuentros con guardianes (niveles 3 y 7), sus proyectiles se esquivan hasta cargar el portal.
+- Transiciones automaticas luz/sombra y plataformas por fase.
+- Animacion articulada del protagonista.
+- Efectos: particulas, explosiones, estelas, aros de energia, shake, destellos y scanlines/vineta ligeros.
+- Fondos multicapa parallax generados por codigo.
+- Introduccion cinematica corta por nivel y enfasis en la victoria.
+- Dos pistas musicales originales sintetizadas, una para cada fase, mas los 9 efectos WAV.
+- HUD, controles tactiles separados del escenario y soporte teclado A/D/flechas, espacio y M para silenciar.
 
-## Exportar APK
-Subir el contenido de esta carpeta a la raíz del repositorio. `.github/workflows/android.yml` compila con GitHub Actions y publica `Chispa-Android-APK`.
+## Compilacion
+Subir todo a la raiz del repositorio GitHub. El workflow `.github/workflows/android.yml` genera el APK de debug.
 
-El audio es PCM WAV mono, sintetizado específicamente para esta versión. No requiere recursos externos. La orientación horizontal se establece en `project.godot`.
-
-**Nota:** proyecto actualizado pero no se ha comprobado aquí la compilación final ni probado en un teléfono real.
+## Nota
+El paquete se entrega como fuente; la compilacion y prueba en telefono se deben verificar en Actions.
