@@ -92,6 +92,19 @@ jobs:
           mkdir -p build
           godot --headless --path . --editor --import --quit 2>&1 | tee build/import.log
 
+      - name: Validar inicio real de CHISPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          # Importar no garantiza que el juego arranque. Iniciamos main.tscn.
+          godot --headless --path . --quit-after 120 2>&1 | tee build/startup.log
+          if grep -Eiq 'SCRIPT ERROR|Parse Error|Invalid call|Invalid access|Failed to load script|Failed loading resource|ERROR:' build/startup.log; then
+            echo 'Se detectaron errores al iniciar la escena principal.'
+            exit 1
+          fi
+          echo 'CHISPA: escena principal iniciada sin errores detectados.'
+
       - name: Configurar preferencias y preset Android
         shell: bash
         run: |
@@ -139,7 +152,7 @@ jobs:
           package/unique_name="org.bluedash.runner"
           package/name="CHISPA"
           package/signed=true
-          package/version_code=1
+          package/version_code=2
           package/version_name="1.0"
           keystore/debug="{keystore}"
           keystore/debug_user="androiddebugkey"
@@ -175,6 +188,7 @@ jobs:
           name: Chispa-Pro-Diagnosticos
           path: |
             build/import.log
+            build/startup.log
             build/export.log
           if-no-files-found: warn
           retention-days: 7
