@@ -1,20 +1,13 @@
-# CHISPA DELUXE – El mundo se apaga
+# CHISPA DELUXE — revisión del arranque Android
 
-Juego 2D para Android, Godot 4.4.1, pantalla horizontal.
+Esta versión conserva los 7 niveles, jefes, música dinámica, cinemáticas, plataformas automáticas luz/sombra y controles horizontales. Se corrigieron las declaraciones de tipos inferidos desde valores dinámicos de GDScript para evitar fallos de compilación del script principal.
 
-## Incluye
-- 7 niveles completos en datos de escenario.
-- Dos encuentros con guardianes (niveles 3 y 7), sus proyectiles se esquivan hasta cargar el portal.
-- Transiciones automaticas luz/sombra y plataformas por fase.
-- Animacion articulada del protagonista.
-- Efectos: particulas, explosiones, estelas, aros de energia, shake, destellos y scanlines/vineta ligeros.
-- Fondos multicapa parallax generados por codigo.
-- Introduccion cinematica corta por nivel y enfasis en la victoria.
-- Dos pistas musicales originales sintetizadas, una para cada fase, mas los 9 efectos WAV.
-- HUD, controles tactiles separados del escenario y soporte teclado A/D/flechas, espacio y M para silenciar.
+## Comprobación en GitHub Actions
 
-## Compilacion
-Subir todo a la raiz del repositorio GitHub. El workflow `.github/workflows/android.yml` genera el APK de debug.
+El workflow ahora **inicia la escena principal en modo headless antes de exportar**. Si el juego presenta errores de GDScript en el arranque, el workflow se detiene y publica el archivo `build/startup.log` en `Chispa-Pro-Diagnosticos`, en lugar de entregar un APK inutilizable.
 
-## Nota
-El paquete se entrega como fuente; la compilacion y prueba en telefono se deben verificar en Actions.
+La verificación headless no sustituye una prueba de gráficos y controles en un teléfono Android. Si se queda en negro después de una compilación verde, obtener el `adb logcat` filtrando `godot` / `AndroidRuntime` ayudará a aislar errores específicos del dispositivo.
+
+## Instalar
+
+Descomprimir y subir a la raíz del repositorio. El workflow está en `.github/workflows/android.yml`. Descargar `Chispa-Android-APK` desde GitHub Actions.
